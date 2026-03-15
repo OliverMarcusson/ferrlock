@@ -103,6 +103,24 @@ pub fn is_password_set(state: State<'_, AppState>) -> bool {
     set
 }
 
+#[tauri::command]
+pub fn verify_management_password(
+    state: State<'_, AppState>,
+    password: String,
+) -> Result<bool, FerrlockError> {
+    eprintln!("[ferrlock] verify_management_password called");
+    let config = state.config.lock().unwrap();
+
+    let Some(hash) = config.password_hash.as_ref() else {
+        eprintln!("[ferrlock] management password not set");
+        return Ok(true);
+    };
+
+    let valid = password::verify_password(&password, hash)?;
+    eprintln!("[ferrlock] management password valid: {valid}");
+    Ok(valid)
+}
+
 // --- Mode Detection ---
 
 #[tauri::command]

@@ -8,6 +8,7 @@ mod tray;
 
 use commands::AppState;
 use std::sync::Mutex;
+use tauri::Emitter;
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{CloseHandle, GetLastError, ERROR_ALREADY_EXISTS, HANDLE};
 use windows::Win32::System::Threading::CreateMutexW;
@@ -154,6 +155,7 @@ fn run_management_mode() {
             commands::remove_protected_app,
             commands::set_password,
             commands::is_password_set,
+            commands::verify_management_password,
             commands::get_target_exe,
             commands::verify_and_launch,
         ])
@@ -171,10 +173,12 @@ fn run_management_mode() {
             tray::setup_tray(app.handle())?;
 
             // Hide main window on close instead of quitting
+            let app_handle = app.handle().clone();
             let w = window.clone();
             window.on_window_event(move |event| {
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
+                    let _ = app_handle.emit_to("main", "management-lock-requested", ());
                     let _ = w.hide();
                 }
             });
