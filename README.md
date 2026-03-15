@@ -58,6 +58,28 @@ Create a production build:
 bun run tauri build
 ```
 
+## Release Process
+
+Ferrlock releases are published by GitHub Actions from semver tags in the form `vX.Y.Z`.
+
+Maintainer flow:
+
+1. Update the version in `package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json`.
+2. Merge the version bump to `main`.
+3. Create and push the tag:
+
+```powershell
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The release workflow validates that the pushed tag matches all three version files, builds the NSIS installer, creates or updates the corresponding GitHub Release, and uploads:
+
+- `Ferrlock_<version>_x64-setup.exe`
+- `Ferrlock_<version>_x64-setup.exe.sha256`
+
+This first release pipeline does not include Windows code signing or Tauri updater metadata yet. Published installers may therefore show SmartScreen warnings until signing is added.
+
 ## Usage
 
 1. Launch Ferrlock.
@@ -92,4 +114,3 @@ Ferrlock is a local access-control convenience tool, not a full anti-tamper syst
 ## GitHub Notes
 
 The repository includes standard ignore rules and editor metadata files, but no license file has been added yet. Choose a license explicitly before publishing the repo publicly.
-

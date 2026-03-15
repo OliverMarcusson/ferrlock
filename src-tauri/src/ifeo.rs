@@ -82,20 +82,6 @@ pub fn clear_ifeo_protection(exe_name: &str) -> Result<(), FerrlockError> {
     Ok(())
 }
 
-/// Check if an IFEO debugger is set for a given executable.
-pub fn get_ifeo_debugger(exe_name: &str) -> Result<Option<String>, FerrlockError> {
-    let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
-    let subkey_path = format!("{IFEO_BASE}\\{exe_name}");
-
-    match hklm.open_subkey_with_flags(&subkey_path, KEY_READ) {
-        Ok(key) => match key.get_value::<String, _>("Debugger") {
-            Ok(val) => Ok(Some(val)),
-            Err(_) => Ok(None),
-        },
-        Err(_) => Ok(None),
-    }
-}
-
 /// Repair the IFEO key ACL for an already-protected executable.
 pub fn repair_ifeo_permissions(exe_name: &str) -> Result<(), FerrlockError> {
     let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
@@ -244,7 +230,7 @@ fn grant_users_write_access(key: &RegKey) -> Result<(), FerrlockError> {
     };
 
     unsafe {
-        let handle = HANDLE(key.raw_handle() as *mut std::ffi::c_void);
+        let handle = HANDLE(key.raw_handle());
 
         // Read the current DACL so we can merge the new ACE into it.
         let mut existing_dacl: *mut ACL = std::ptr::null_mut();
@@ -269,7 +255,7 @@ fn grant_users_write_access(key: &RegKey) -> Result<(), FerrlockError> {
             .map_err(|e| FerrlockError::Registry(format!("CreateWellKnownSid failed: {e}")))?;
 
         let ea = EXPLICIT_ACCESS_W {
-            grfAccessPermissions: (KEY_QUERY_VALUE | KEY_SET_VALUE) as u32,
+            grfAccessPermissions: KEY_QUERY_VALUE | KEY_SET_VALUE,
             grfAccessMode: GRANT_ACCESS,
             grfInheritance: windows::Win32::Security::ACE_FLAGS(0),
             Trustee: TRUSTEE_W {

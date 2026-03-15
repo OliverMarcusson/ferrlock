@@ -11,21 +11,11 @@ pub struct ProtectedApp {
     pub exe_path: String,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct AppConfig {
     pub password_hash: Option<String>,
     pub protected_apps: Vec<ProtectedApp>,
     pub autostart_enabled: bool,
-}
-
-impl Default for AppConfig {
-    fn default() -> Self {
-        Self {
-            password_hash: None,
-            protected_apps: Vec::new(),
-            autostart_enabled: false,
-        }
-    }
 }
 
 pub fn config_dir() -> PathBuf {
