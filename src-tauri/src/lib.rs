@@ -8,11 +8,44 @@ mod tray;
 
 use commands::AppState;
 use std::sync::Mutex;
+use windows::core::PCWSTR;
+use windows::Win32::Foundation::{CloseHandle, GetLastError, ERROR_ALREADY_EXISTS, HANDLE};
+use windows::Win32::System::Threading::CreateMutexW;
 
 enum AppMode {
     Management,
     PasswordPrompt { target_exe: String },
     Relock { exe_name: String },
+}
+
+struct SingleInstanceGuard {
+    handle: HANDLE,
+}
+
+impl SingleInstanceGuard {
+    fn try_acquire(name: &str) -> Result<Option<Self>, String> {
+        let wide: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
+
+        unsafe {
+            let handle = CreateMutexW(None, false, PCWSTR(wide.as_ptr()))
+                .map_err(|e| format!("Failed to create single-instance mutex: {e}"))?;
+
+            if GetLastError() == ERROR_ALREADY_EXISTS {
+                let _ = CloseHandle(handle);
+                return Ok(None);
+            }
+
+            Ok(Some(Self { handle }))
+        }
+    }
+}
+
+impl Drop for SingleInstanceGuard {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = CloseHandle(self.handle);
+        }
+    }
 }
 
 fn detect_mode(args: &[String]) -> AppMode {
@@ -87,9 +120,21 @@ pub fn run() {
 }
 
 fn run_management_mode() {
+    let instance_guard = match SingleInstanceGuard::try_acquire("Global\\ferrlock_management") {
+        Ok(Some(guard)) => guard,
+        Ok(None) => return,
+        Err(err) => {
+            eprintln!("[ferrlock] warning: {err}");
+            return;
+        }
+    };
+
     let cfg = config::load_config().unwrap_or_default();
     let ferrlock_path = get_ferrlock_path();
     sync_ifeo_entries(&cfg, &ferrlock_path);
+
+    // Keep the mutex alive for the lifetime of this management process.
+    std::mem::forget(instance_guard);
 
     tauri::Builder::default()
         .plugin(tauri_plugin_autostart::init(
