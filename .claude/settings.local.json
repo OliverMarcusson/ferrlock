@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(bun --version)",
+      "Bash(bun install:*)",
+      "Bash(npx tauri:*)",
+      "Bash(bunx tauri:*)",
+      "Bash(bun x:*)",
+      "Bash(bun run:*)"
+    ]
+  }
+}
