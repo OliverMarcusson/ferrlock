@@ -1,9 +1,14 @@
 import { useEffect, useRef, useState } from "react";
+import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { confirm } from "@tauri-apps/plugin-dialog";
+import { relaunch } from "@tauri-apps/plugin-process";
+import { check, type DownloadEvent, type Update } from "@tauri-apps/plugin-updater";
 import AppList from "../components/AppList";
 import SettingsPanel from "../components/SettingsPanel";
+import { formatUpdateError, toAvailableUpdateDetails, type UpdateStatus } from "../lib/updater";
 
 type Tab = "apps" | "settings";
 
@@ -15,7 +20,11 @@ export default function ManagementPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [appVersion, setAppVersion] = useState("");
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({ kind: "idle" });
   const inputRef = useRef<HTMLInputElement>(null);
+  const pendingUpdateRef = useRef<Update | null>(null);
+  const updateCheckStartedRef = useRef(false);
 
   async function relockManagement() {
     setPassword("");
@@ -35,6 +44,14 @@ export default function ManagementPage() {
 
   useEffect(() => {
     let mounted = true;
+
+    getVersion()
+      .then((version) => {
+        if (mounted) {
+          setAppVersion(version);
+        }
+      })
+      .catch(() => {});
 
     invoke<boolean>("is_password_set")
       .then((passwordSet) => {
@@ -86,6 +103,106 @@ export default function ManagementPage() {
 
     return () => window.clearTimeout(timer);
   }, [ready, requiresPassword, unlocked]);
+
+  useEffect(() => {
+    if (!ready || !unlocked || updateCheckStartedRef.current) {
+      return;
+    }
+
+    updateCheckStartedRef.current = true;
+    void runUpdateCheck("startup");
+  }, [ready, unlocked]);
+
+  async function runUpdateCheck(source: "startup" | "manual") {
+    setUpdateStatus({ kind: "checking", source });
+
+    try {
+      const availableUpdate = await check();
+
+      if (!availableUpdate) {
+        pendingUpdateRef.current = null;
+        setUpdateStatus({
+          kind: "no-update",
+          currentVersion: appVersion || "unknown",
+          checkedAt: new Date().toISOString(),
+        });
+        return;
+      }
+
+      pendingUpdateRef.current = availableUpdate;
+      setUpdateStatus({
+        kind: "available",
+        ...toAvailableUpdateDetails(availableUpdate),
+      });
+    } catch (err) {
+      pendingUpdateRef.current = null;
+      setUpdateStatus({
+        kind: "error",
+        message: formatUpdateError(err),
+      });
+    }
+  }
+
+  async function handleInstallUpdate() {
+    const availableUpdate = pendingUpdateRef.current;
+    if (!availableUpdate) {
+      return;
+    }
+
+    const accepted = await confirm(
+      `Download and install Ferrlock ${availableUpdate.version} now?${availableUpdate.body ? `\n\n${availableUpdate.body}` : ""}`,
+      {
+        title: "Ferrlock update available",
+        kind: "info",
+        okLabel: "Install update",
+        cancelLabel: "Later",
+      },
+    );
+
+    if (!accepted) {
+      return;
+    }
+
+    let downloadedBytes = 0;
+    let totalBytes: number | undefined;
+
+    try {
+      setUpdateStatus({
+        kind: "downloading",
+        version: availableUpdate.version,
+        downloadedBytes: 0,
+      });
+
+      await availableUpdate.downloadAndInstall((event: DownloadEvent) => {
+        if (event.event === "Started") {
+          totalBytes = event.data.contentLength;
+          downloadedBytes = 0;
+        } else if (event.event === "Progress") {
+          downloadedBytes += event.data.chunkLength;
+        }
+
+        setUpdateStatus({
+          kind: "downloading",
+          version: availableUpdate.version,
+          downloadedBytes,
+          totalBytes,
+        });
+      });
+
+      pendingUpdateRef.current = null;
+      setUpdateStatus({
+        kind: "installed",
+        version: availableUpdate.version,
+      });
+
+      await relaunch();
+    } catch (err) {
+      setUpdateStatus({
+        kind: "error",
+        message: formatUpdateError(err),
+      });
+    }
+  }
 
   async function handleUnlock(e: React.FormEvent) {
     e.preventDefault();
@@ -205,7 +322,36 @@ export default function ManagementPage() {
       </nav>
 
       <main className="p-6">
-        {tab === "apps" ? <AppList /> : <SettingsPanel />}
+        {updateStatus.kind === "available" && tab !== "settings" && (
+          <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-500/40 bg-blue-500/10 px-4 py-3">
+            <div>
+              <p className="text-sm font-medium text-blue-200">
+                Ferrlock {updateStatus.version} is available.
+              </p>
+              <p className="text-xs text-blue-100/80">Open Settings to review release notes and install the update.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setTab("settings")}
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
+            >
+              View Update
+            </button>
+          </div>
+        )}
+
+        {tab === "apps" ? (
+          <AppList />
+        ) : (
+          <SettingsPanel
+            appVersion={appVersion}
+            updateStatus={updateStatus}
+            onCheckForUpdates={async () => {
+              await runUpdateCheck("manual");
+            }}
+            onInstallUpdate={handleInstallUpdate}
+          />
+        )}
       </main>
     </div>
   );

@@ -43,25 +43,11 @@ jobs:
         run: .\.github\scripts\validate-release-version.ps1 -TagName "${{ github.ref_name }}"
 
       - name: Build installer
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: bun run tauri build
-
-      - name: Prepare release assets
-        id: assets
-        shell: pwsh
-        run: |
-          $bundleDir = Join-Path $PWD "src-tauri\target\release\bundle\nsis"
-          $installers = Get-ChildItem -Path $bundleDir -Filter "*-setup.exe"
-          if ($installers.Count -ne 1) {
-            throw "Expected exactly one installer in '$bundleDir', found $($installers.Count)."
-          }
-
-          $installer = $installers[0]
-          $hash = Get-FileHash -Algorithm SHA256 -Path $installer.FullName
-          $checksumPath = "$($installer.FullName).sha256"
-          "$($hash.Hash.ToLowerInvariant()) *$($installer.Name)" | Set-Content -Path $checksumPath -NoNewline
-
-          "installer_path=$($installer.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          "checksum_path=$checksumPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+        # If the updater key has no password, leave TAURI_SIGNING_PRIVATE_KEY_PASSWORD unset.
 
       - name: Create or update GitHub release
         shell: pwsh
@@ -78,8 +64,76 @@ jobs:
               --generate-notes
           }
 
+      - name: Prepare release assets
+        id: assets
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $bundleDir = Join-Path $PWD "src-tauri\target\release\bundle"
+          $nsisDir = Join-Path $bundleDir "nsis"
+          $tag = "${{ github.ref_name }}"
+          $version = "${{ steps.version.outputs.version }}"
+          $release = gh release view $tag --repo "${{ github.repository }}" --json body,publishedAt | ConvertFrom-Json
+
+          $installers = Get-ChildItem -Path $nsisDir -Filter "*-setup.exe"
+          if ($installers.Count -ne 1) {
+            throw "Expected exactly one installer in '$nsisDir', found $($installers.Count)."
+          }
+
+          $installer = $installers[0]
+          $hash = Get-FileHash -Algorithm SHA256 -Path $installer.FullName
+          $checksumPath = "$($installer.FullName).sha256"
+          "$($hash.Hash.ToLowerInvariant()) *$($installer.Name)" | Set-Content -Path $checksumPath -NoNewline
+
+          $updaterAsset = $installer
+          $updaterSignaturePath = "$($installer.FullName).sig"
+          if (-not (Test-Path $updaterSignaturePath)) {
+            $legacyUpdaterBundles = Get-ChildItem -Path $nsisDir -Filter "*.zip"
+            if ($legacyUpdaterBundles.Count -ne 1) {
+              throw "Expected either '$updaterSignaturePath' or exactly one legacy updater bundle in '$nsisDir', found $($legacyUpdaterBundles.Count)."
+            }
+
+            $updaterAsset = $legacyUpdaterBundles[0]
+            $updaterSignaturePath = "$($updaterAsset.FullName).sig"
+          }
+
+          if (-not (Test-Path $updaterSignaturePath)) {
+            throw "Expected updater signature at '$updaterSignaturePath'."
+          }
+
+          $signature = (Get-Content -Raw -Path $updaterSignaturePath).Trim()
+          $latestJsonPath = Join-Path $bundleDir "latest.json"
+          $latestJson = @{
+            version = $version
+            notes = if ($release.body) { $release.body } else { "" }
+            pub_date = $release.publishedAt
+            platforms = @{
+              "windows-x86_64" = @{
+                signature = $signature
+                url = "${{ github.server_url }}/${{ github.repository }}/releases/download/$tag/$($updaterAsset.Name)"
+              }
+            }
+          } | ConvertTo-Json -Depth 5
+          $latestJson | Set-Content -Path $latestJsonPath -Encoding utf8
+
+          "installer_path=$($installer.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "checksum_path=$checksumPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "updater_asset_path=$($updaterAsset.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "updater_signature_path=$updaterSignaturePath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "latest_json_path=$latestJsonPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Upload release assets
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "${{ github.ref_name }}"
           gh release upload $tag `
             "${{ steps.assets.outputs.installer_path }}" `
             "${{ steps.assets.outputs.checksum_path }}" `
+            "${{ steps.assets.outputs.updater_asset_path }}" `
+            "${{ steps.assets.outputs.updater_signature_path }}" `
+            "${{ steps.assets.outputs.latest_json_path }}" `
             --repo "${{ github.repository }}" `
             --clobber

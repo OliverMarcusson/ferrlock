@@ -77,8 +77,43 @@ The release workflow validates that the pushed tag matches all three version fil
 
 - `Ferrlock_<version>_x64-setup.exe`
 - `Ferrlock_<version>_x64-setup.exe.sha256`
+- `Ferrlock_<version>_x64-setup.exe.sig`
+- `latest.json`
 
-This first release pipeline does not include Windows code signing or Tauri updater metadata yet. Published installers may therefore show SmartScreen warnings until signing is added.
+The updater feed in `latest.json` points to the signed Windows updater artifact from the release. With the current Tauri v2 setup, that is the signed NSIS installer plus its `.sig` file.
+
+The release pipeline now signs updater artifacts for Ferrlock's in-app updater, but it still does not include Windows code signing. Published installers may therefore show SmartScreen warnings until OS-level signing is added.
+
+### Updater Key Setup
+
+Ferrlock's updater uses a dedicated Tauri signing key pair that is separate from Windows code signing.
+
+One-time maintainer setup:
+
+1. Generate a key pair locally:
+
+```powershell
+bun x tauri signer generate -w $env:USERPROFILE\.tauri\ferrlock-updater.key
+```
+
+2. Commit the public key to Ferrlock's updater config.
+3. Add the private key contents to the `TAURI_SIGNING_PRIVATE_KEY` GitHub Actions secret.
+4. If you protected the key with a password, add `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` as a second secret.
+   If you generated the key without a password, set the password to an empty string for local builds and leave the GitHub secret unset.
+
+Local updater-enabled build:
+
+```powershell
+$env:TAURI_SIGNING_PRIVATE_KEY = Get-Content -Raw "$env:USERPROFILE\.tauri\ferrlock-updater.key"
+$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = ""
+bun run tauri build
+```
+
+Recovery and rotation notes:
+
+- If the private key is lost, Ferrlock can no longer publish compatible updater artifacts for existing installs. Generate a new key pair and ship it only as part of a full installer-driven upgrade path.
+- If the key is compromised, rotate it by shipping a release that updates the embedded public key and signs that release with the old private key first, then switch CI to the new private key for subsequent releases.
+- If you regenerate the key unexpectedly, existing installs will reject future in-app updates until they receive a build signed by the previous key.
 
 ## Usage
 
