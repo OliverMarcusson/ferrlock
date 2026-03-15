@@ -7,11 +7,16 @@ mod password;
 mod tray;
 
 use commands::AppState;
+use std::ffi::OsStr;
+use std::mem::size_of;
+use std::os::windows::ffi::OsStrExt;
 use std::sync::Mutex;
 use tauri::Emitter;
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{CloseHandle, GetLastError, ERROR_ALREADY_EXISTS, HANDLE};
-use windows::Win32::System::Threading::CreateMutexW;
+use windows::Win32::Security::{GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY};
+use windows::Win32::System::Threading::{CreateMutexW, GetCurrentProcess, OpenProcessToken};
+use windows::Win32::UI::Shell::{ShellExecuteExW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW};
 
 enum AppMode {
     Management,
@@ -90,6 +95,59 @@ fn get_ferrlock_path() -> String {
         .to_string()
 }
 
+fn wide_null(value: &OsStr) -> Vec<u16> {
+    value.encode_wide().chain(std::iter::once(0)).collect()
+}
+
+fn is_current_process_elevated() -> Result<bool, String> {
+    unsafe {
+        let mut token = HANDLE::default();
+        OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token)
+            .map_err(|e| format!("Failed to open process token: {e}"))?;
+
+        let mut elevation = TOKEN_ELEVATION::default();
+        let mut bytes_returned = 0u32;
+        let info_result = GetTokenInformation(
+            token,
+            TokenElevation,
+            Some((&mut elevation as *mut TOKEN_ELEVATION).cast()),
+            size_of::<TOKEN_ELEVATION>() as u32,
+            &mut bytes_returned,
+        )
+        .map_err(|e| format!("Failed to query elevation state: {e}"));
+
+        let _ = CloseHandle(token);
+        info_result?;
+
+        Ok(elevation.TokenIsElevated != 0)
+    }
+}
+
+fn relaunch_management_as_administrator() -> Result<(), String> {
+    let exe_path = std::env::current_exe()
+        .map_err(|e| format!("Failed to resolve Ferrlock path for elevation: {e}"))?;
+    let exe_wide = wide_null(exe_path.as_os_str());
+    let verb_wide = wide_null(OsStr::new("runas"));
+
+    let mut exec_info: SHELLEXECUTEINFOW = unsafe { std::mem::zeroed() };
+    exec_info.cbSize = size_of::<SHELLEXECUTEINFOW>() as u32;
+    exec_info.fMask = SEE_MASK_NOCLOSEPROCESS;
+    exec_info.lpVerb = PCWSTR(verb_wide.as_ptr());
+    exec_info.lpFile = PCWSTR(exe_wide.as_ptr());
+    exec_info.nShow = 1;
+
+    unsafe {
+        ShellExecuteExW(&mut exec_info)
+            .map_err(|e| format!("Failed to relaunch Ferrlock as administrator: {e}"))?;
+
+        if !exec_info.hProcess.is_invalid() {
+            let _ = CloseHandle(exec_info.hProcess);
+        }
+    }
+
+    Ok(())
+}
+
 fn sync_ifeo_entries(cfg: &config::AppConfig, ferrlock_path: &str) {
     for app in &cfg.protected_apps {
         if let Err(err) = ifeo::set_ifeo_debugger(&app.exe_name, ferrlock_path) {
@@ -121,6 +179,20 @@ pub fn run() {
 }
 
 fn run_management_mode() {
+    match is_current_process_elevated() {
+        Ok(true) => {}
+        Ok(false) => {
+            if let Err(err) = relaunch_management_as_administrator() {
+                eprintln!("[ferrlock] warning: {err}");
+            }
+            return;
+        }
+        Err(err) => {
+            eprintln!("[ferrlock] warning: {err}");
+            return;
+        }
+    }
+
     let instance_guard = match SingleInstanceGuard::try_acquire("Global\\ferrlock_management") {
         Ok(Some(guard)) => guard,
         Ok(None) => return,
