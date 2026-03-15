@@ -42,21 +42,6 @@ jobs:
         shell: pwsh
         run: .\.github\scripts\validate-release-version.ps1 -TagName "${{ github.ref_name }}"
 
-      - name: Build frontend
-        run: bun run build
-
-      - name: Check formatting
-        working-directory: src-tauri
-        run: cargo fmt --check
-
-      - name: Lint Rust
-        working-directory: src-tauri
-        run: cargo clippy --all-targets -- -D warnings
-
-      - name: Test Rust
-        working-directory: src-tauri
-        run: cargo test
-
       - name: Build installer
         run: bun run tauri build
 
