@@ -104,6 +104,7 @@ bun x tauri signer generate -w $env:USERPROFILE\.tauri\ferrlock-updater.key
 Local updater-enabled build:
 
 ```powershell
+scripts/validate-signing-key.ps1
 scripts/build.ps1
 ```
 

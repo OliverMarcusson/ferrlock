@@ -1,7 +1,6 @@
 param(
     [string]$KeyPath = "$env:USERPROFILE\.tauri\ferrlock-updater.key",
-    [string]$PrivateKey = $env:TAURI_SIGNING_PRIVATE_KEY,
-    [string]$KeyPassword = $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+    [string]$PrivateKey = $env:TAURI_SIGNING_PRIVATE_KEY
 )
 
 Set-StrictMode -Version Latest
@@ -18,12 +17,5 @@ if ([string]::IsNullOrWhiteSpace($privateKey)) {
     $privateKey = Get-Content -Raw -Path $KeyPath
 }
 
-if ($null -eq $KeyPassword) {
-    $KeyPassword = ""
-}
-
-$env:TAURI_SIGNING_PRIVATE_KEY = Assert-TauriSigningKey -Value $privateKey
-$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = $KeyPassword
-$env:CI = "true"
-
-bun run tauri build --ci
+[void](Assert-TauriSigningKey -Value $privateKey)
+Write-Host "Validated updater signing key format."
