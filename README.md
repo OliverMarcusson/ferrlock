@@ -104,10 +104,11 @@ bun x tauri signer generate -w $env:USERPROFILE\.tauri\ferrlock-updater.key
 Local updater-enabled build:
 
 ```powershell
-$env:TAURI_SIGNING_PRIVATE_KEY = Get-Content -Raw "$env:USERPROFILE\.tauri\ferrlock-updater.key"
-$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = ""
-bun run tauri build
+scripts/build.ps1
 ```
+
+If your updater key is password-protected, set `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` first or pass `-KeyPassword` to the script.
+If the password is intentionally empty, the script forces Tauri's `--ci` mode so the build stays non-interactive instead of prompting for a password on stdin.
 
 Recovery and rotation notes:
 
