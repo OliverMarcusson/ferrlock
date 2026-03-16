@@ -11,6 +11,7 @@ use std::ffi::OsStr;
 use std::mem::size_of;
 use std::os::windows::ffi::OsStrExt;
 use std::sync::Mutex;
+use tauri::image::Image;
 use tauri::Emitter;
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{CloseHandle, GetLastError, ERROR_ALREADY_EXISTS, HANDLE};
@@ -93,6 +94,10 @@ fn get_ferrlock_path() -> String {
         .expect("Failed to get current exe path")
         .to_string_lossy()
         .to_string()
+}
+
+fn app_icon() -> Image<'static> {
+    Image::from_bytes(include_bytes!("../icons/icon.png")).expect("Failed to load app icon")
 }
 
 fn wide_null(value: &OsStr) -> Vec<u16> {
@@ -179,6 +184,8 @@ pub fn run() {
 }
 
 fn run_management_mode() {
+    let app_icon = app_icon();
+
     match is_current_process_elevated() {
         Ok(true) => {}
         Ok(false) => {
@@ -233,10 +240,11 @@ fn run_management_mode() {
             commands::get_target_exe,
             commands::verify_and_launch,
         ])
-        .setup(|app| {
+        .setup(move |app| {
             // Create the main management window
             let window =
                 tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("/".into()))
+                    .icon(app_icon.clone())?
                     .title("Ferrlock")
                     .inner_size(700.0, 500.0)
                     .resizable(true)
@@ -244,7 +252,7 @@ fn run_management_mode() {
                     .build()?;
 
             // Set up system tray
-            tray::setup_tray(app.handle())?;
+            tray::setup_tray(app.handle(), app_icon.clone())?;
 
             // Hide main window on close instead of quitting
             let app_handle = app.handle().clone();
@@ -266,6 +274,7 @@ fn run_management_mode() {
 fn run_prompt_mode(target_exe: String) {
     let cfg = config::load_config().unwrap_or_default();
     let ferrlock_path = get_ferrlock_path();
+    let app_icon = app_icon();
 
     tauri::Builder::default()
         .manage(AppState {
@@ -281,6 +290,7 @@ fn run_prompt_mode(target_exe: String) {
         .setup(move |app| {
             let prompt_window =
                 tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("/".into()))
+                    .icon(app_icon.clone())?
                     .data_directory(
                         dirs::data_dir()
                             .unwrap_or_default()

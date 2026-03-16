@@ -1,6 +1,14 @@
-# Ferrlock
+<p align="center">
+  <img src="./Ferrlock-logo.png" alt="Ferrlock logo" width="220">
+</p>
 
-Ferrlock is a Windows desktop app that password-protects selected `.exe` applications. It uses Tauri for the desktop shell, React for the UI, and the Windows Image File Execution Options (IFEO) debugger hook to intercept launches and require a password before the protected app starts.
+<h1 align="center">Ferrlock</h1>
+
+<p align="center"><strong>Password-lock selected Windows apps before they launch.</strong></p>
+
+<p align="center">
+  Ferrlock is a Windows desktop app built with Tauri and React that intercepts protected <code>.exe</code> launches through IFEO and requires a password before the target app starts.
+</p>
 
 ## Features
 

@@ -1,10 +1,11 @@
 use tauri::{
+    image::Image,
     menu::{MenuBuilder, MenuItemBuilder},
     tray::TrayIconBuilder,
     AppHandle, Emitter, Manager,
 };
 
-pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+pub fn setup_tray(app: &AppHandle, icon: Image<'static>) -> Result<(), Box<dyn std::error::Error>> {
     let show_item = MenuItemBuilder::with_id("show", "Open Ferrlock").build(app)?;
     let quit_item = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
 
@@ -15,7 +16,7 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     TrayIconBuilder::with_id("ferrlock-tray")
-        .icon(app.default_window_icon().unwrap().clone())
+        .icon(icon)
         .menu(&menu)
         .on_menu_event(|app, event| match event.id().as_ref() {
             "show" => {
